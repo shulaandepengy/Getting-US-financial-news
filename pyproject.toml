@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "getting-us-financial-news"
+version = "0.1.0"
+description = "US Treasury, Federal Reserve and White House news attribution via DeepSeek and Feishu"
+requires-python = ">=3.11"
+dependencies = ["python-dotenv>=1.0,<2", "jsonschema>=4.22,<5"]
+
+[tool.setuptools]
+packages = ["news_pipeline"]
+
+[project.scripts]
+us-news = "news_pipeline.cli:main"
+
