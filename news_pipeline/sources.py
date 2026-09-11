@@ -3,9 +3,9 @@ import hashlib
 import json
 import os
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, urlencode
 from urllib.request import Request, urlopen
 
 
@@ -104,10 +104,19 @@ def collect(source, start, end):
         coverage["gaps"] = ["source endpoint not configured"]
         return [], coverage
     try:
+        direct_kind = source['kind']
+        if direct_kind == 'cls':
+            # Mirrors RSSHub's public CLS route signing; no account secret involved.
+            params = urlencode(sorted({'appName': 'CailianpressWeb', 'os': 'web',
+                                       'sv': '8.7.9', 'name': 'telegraph'}.items()))
+            signature = hashlib.md5(hashlib.sha1(params.encode()).hexdigest().encode()).hexdigest()
+            url = url.split('?')[0] + '?' + params + '&sign=' + signature
         url = url.replace("{since}", quote(start, safe="")).replace("{until}", quote(end, safe=""))
         if urlparse(url).scheme != "https":
             raise ValueError("HTTPS source required")
         headers = {"User-Agent": "Getting-US-financial-news/0.1"}
+        if direct_kind == 'jin10':
+            headers.update({'x-app-id': 'bVBF4FyRTn5NJF5n', 'x-version': '1.0.0'})
         if source.get("headers_env"):
             headers.update(json.loads(os.environ[source["headers_env"]]))
         with urlopen(Request(url, headers=headers), timeout=30) as response:
@@ -115,7 +124,34 @@ def collect(source, start, end):
         if len(raw) > 10_000_000:
             raise ValueError("source response exceeds 10 MB")
         fetched = utcnow()
-        if source["kind"] == "rss":
+        if direct_kind in ('cls', 'jin10'):
+            payload = json.loads(raw)
+            items = []
+            if direct_kind == 'cls':
+                if payload.get('errno') != 0:
+                    raise ValueError('CLS upstream error')
+                for row in payload['data']['roll_data']:
+                    items.append({'id': row['id'], 'title': row.get('title', ''),
+                                  'content': row.get('content'), 'published_at': row.get('ctime'),
+                                  'url': row.get('shareurl') or 'https://www.cls.cn/detail/' + str(row['id'])})
+            else:
+                if payload.get('status') != 200:
+                    raise ValueError('Jin10 upstream error')
+                for row in payload['data']:
+                    data = row.get('data', {})
+                    if data.get('lock'):
+                        coverage['gaps'].append('locked Jin10 item omitted')
+                        continue
+                    if not data.get('content'):
+                        coverage['gaps'].append('Jin10 item without text omitted')
+                        continue
+                    published = datetime.strptime(row['time'], '%Y-%m-%d %H:%M:%S')
+                    published = published.replace(tzinfo=timezone(timedelta(hours=8))).isoformat()
+                    items.append({'id': row['id'], 'title': data.get('title', ''),
+                                  'content': data['content'], 'published_at': published,
+                                  'url': 'https://flash.jin10.com/detail/' + str(row['id'])})
+            coverage['gaps'].append('latest-feed snapshot does not certify complete historical coverage')
+        elif source["kind"] == "rss":
             items = rss_items(raw)
             coverage["gaps"].append("RSS snapshot cannot prove complete historical coverage or full article text")
         elif source["kind"] == "json":
@@ -131,7 +167,7 @@ def collect(source, start, end):
             else:
                 coverage["gaps"].append("feed does not certify complete requested window")
         else:
-            raise ValueError("source kind must be json or rss")
+            raise ValueError("source kind must be json, rss, cls or jin10")
         if not isinstance(items, list):
             raise ValueError("items must be a list")
         records = []
@@ -151,5 +187,7 @@ def collect(source, start, end):
     except Exception as exc:
         # URLs and response bodies may contain credentials; log only exception class.
         coverage["status"] = "failed"
-        coverage["gaps"] = ["collection failed: " + type(exc).__name__]
+        status_code = getattr(exc, 'code', None)
+        coverage["gaps"] = ["collection failed: " + type(exc).__name__ +
+                            (f' (HTTP {status_code})' if isinstance(status_code, int) else '')]
         return [], coverage
