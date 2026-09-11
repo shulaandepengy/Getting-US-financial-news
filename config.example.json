@@ -11,9 +11,29 @@
   "skill_directory": "skills/deepseek-news-exclusivity",
   "officeholders_file": null,
   "sources": [
-    {"id": "cls", "name": "财联社", "kind": "json", "url_env": "CLS_FEED_URL", "items_path": "items", "headers_env": null},
-    {"id": "jin10", "name": "金十数据", "kind": "json", "url_env": "JIN10_FEED_URL", "items_path": "items", "headers_env": null},
-    {"id": "us_24h", "name": "美国24h来源（待确认）", "kind": "json", "url_env": "US_FEED_URL", "items_path": "items", "headers_env": null}
+    {
+      "id": "cls",
+      "name": "财联社",
+      "kind": "rss",
+      "url_env": "CLS_FEED_URL",
+      "headers_env": null,
+      "url": "https://rsshub.app/cls/telegraph"
+    },
+    {
+      "id": "jin10",
+      "name": "金十数据",
+      "kind": "rss",
+      "url_env": "JIN10_FEED_URL",
+      "headers_env": null,
+      "url": "https://rsshub.app/jin10"
+    },
+    {
+      "id": "us_24h",
+      "name": "Benzinga",
+      "kind": "rss",
+      "url_env": "US_FEED_URL",
+      "headers_env": null,
+      "url": "https://www.benzinga.com/feed"
+    }
   ]
 }
-
