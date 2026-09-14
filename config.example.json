@@ -1,15 +1,26 @@
 {
-  "poll_seconds": 60,
-  "lookback_hours": 24,
-  "recheck_seconds": 600,
-  "retry_seconds": 120,
-  "max_targets_per_cycle": 20,
-  "max_candidates": 100,
+  "sample_hours": 6,
+  "dedup_window_hours": 6,
+  "source_workers": 4,
+  "max_news_items_per_run": 100,
   "max_input_chars": 100000,
-  "max_output_tokens": 12000,
+  "max_output_tokens": 4000,
+  "deepseek_timeout_seconds": 180,
+  "retry_seconds": 300,
+  "duplicate_source_preview_chars": 1500,
+  "retention_days": 30,
+  "send_irrelevant": false,
   "database": "data/news.sqlite3",
-  "skill_directory": "skills/deepseek-news-exclusivity",
+  "skill_directory": "skills/news-subject-action",
   "officeholders_file": null,
+  "dedup": {
+    "window_hours": 6,
+    "title_similarity": 0.86,
+    "content_similarity": 0.76,
+    "related_title_similarity": 0.48,
+    "min_title_chars": 6,
+    "min_content_chars": 80
+  },
   "sources": [
     {
       "id": "cls",
@@ -29,7 +40,7 @@
     },
     {
       "id": "us_24h",
-      "name": "Benzinga",
+      "name": "美国新闻源",
       "kind": "rss",
       "url_env": "US_FEED_URL",
       "headers_env": null,

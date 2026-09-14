@@ -1,16 +1,19 @@
 # Getting US financial news
 
-采集财联社、金十数据和Benzinga RSS的美国财政部、美联储、白宫新闻，经 DeepSeek 判断来源与独家状态，保留原文并发送到飞书自定义机器人。
+这是一个“定时采样 → 六小时内去重 → DeepSeek 判断主体和动作 → 飞书发送”的 Python 程序。每次运行只执行一轮，定时由 GitHub Actions 负责。
 
-## 当前交付状态
+## 运行逻辑
 
-这是重新建立的独立 Python 项目，不依赖原 vibecoding 仓库。已实现可配置 JSON/RSS 采集、SQLite 原文与历史存储、DeepSeek skill 加载及输出校验、六类主体展示、重新判断、飞书签名和持久发送队列。
+1. 每轮并发请求配置中的新闻源；每个源只接收最近 `sample_hours` 小时的新闻。
+2. 所有原始文章先保存到 SQLite。相同新闻在 `dedup.window_hours` 内合并成一个 `news_item`，原始文章不会丢失，所有渠道都会挂在该条新闻下。
+3. 对本轮新增或发生变化的去重新闻调用 DeepSeek，提取监控主体、主体身份和动作；判断 JSON 与证据引文一起保存。
+4. 相关新闻进入飞书发送队列，本轮直接发送；发送失败的消息保留在队列，下一轮自动重试。
 
-**已填写三路 RSS 默认配置，尚未完成全链路运行。** 财联社使用 RSSHub `/cls/telegraph`，金十使用 `/jin10`，美国源使用 Benzinga `https://www.benzinga.com/feed`。本次检查 Benzinga 返回 HTTP 200 和有效 RSS（10 条，样本偏加密货币文章），不保证覆盖完整宏观快讯；RSSHub 公共实例的两路请求均在 20 秒后连接超时。未调用付费模型或发送飞书消息。
+程序不会在本地常驻轮询。`sample_hours` 是每次采样窗口，不是秒级轮询间隔；GitHub Actions 的 cron 应与它保持一致。
 
-## 安装与启动
+## 本地运行
 
-需要 Python 3.11+。在仓库目录打开终端：
+需要 Python 3.11+：
 
 ```powershell
 python -m venv .venv
@@ -19,56 +22,69 @@ Copy-Item .env.example .env
 Copy-Item config.example.json config.local.json
 ```
 
-编辑 `.env`，填写 DeepSeek key、模型名称、飞书机器人 webhook/签名密钥，；三个新闻源 URL 已预填，可按需替换。配置文件可为各源设置 JSON 字段映射或切换 RSS。密钥与本地配置已加入 `.gitignore`，不要提交。
+在 `.env` 填入 `DEEPSEEK_API_KEY`、`FEISHU_WEBHOOK_URL`，必要时填 `FEISHU_SECRET`。`config.local.json` 中最重要的参数是：
 
-```powershell
-# 仅查看配置是否齐全
-.venv\Scripts\python -m news_pipeline.cli doctor
-# 采集并调用 DeepSeek，结果存储在本地，暂不发送飞书
-.venv\Scripts\python -m news_pipeline.cli once
-# 查看已生成的待发送原文与判断
-.venv\Scripts\python -m news_pipeline.cli outbox
-# 发送待发送队列
-.venv\Scripts\python -m news_pipeline.cli flush --send
-# 持续轮询并向飞书发送，Ctrl+C 停止
-.venv\Scripts\python -m news_pipeline.cli run --send
+```json
+{
+  "sample_hours": 6,
+  "dedup_window_hours": 6,
+  "database": "data/news.sqlite3"
+}
 ```
 
-`once/run` 会使用配置的 DeepSeek API，产生相应服务用量。程序默认每轮完成后等待 60 秒；实际延迟包括供应商延迟、AI 判断耗时及队列等待，不是毫秒级推送。每轮最多判断 20 条，完整窗口默认 24 小时，每条默认 10 分钟重新判断；可调整配置。不要同时运行多个实例共用同一数据库。
+运行检查和单轮采样：
 
-## 新闻源接入
+```powershell
+.venv\Scripts\python -m news_pipeline.cli doctor --config config.local.json
+.venv\Scripts\python -m news_pipeline.cli once --config config.local.json
+```
 
-默认地址同时写入 `.env.example` 与 `config.example.json`；非空环境变量优先于 JSON 中的 `url`。已有 `.env` 或 `config.local.json` 不会随仓库模板更新自动改变，请同步三个 URL，并将三路 `kind` 改为 `rss`；避免覆盖自己的密钥。RSS 快照会继续标记覆盖不完整，不会因填入地址而被认定为完整 24 小时证据。
+本地只测试采集和入库、不发送飞书：
 
-三家源在配置中分别使用 `cls`、`jin10`、`us_24h`。`us_24h` 当前显示名为 Benzinga；不同来源必须有独立身份，不能将同一家转载聚合服务当作多个独立源。
+```powershell
+.venv\Scripts\python -m news_pipeline.cli once --config config.local.json --no-send
+```
 
-默认使用 RSS。JSON 输入可另行配置，其统一接口协议并非财联社或金十官方端点。将你拥有的实际数据接口返回字段映射到本项目协议；无需虚构 URL。详见 [数据源契约](docs/source-contract.md)。也可设置 `kind: rss`，读取真实 RSS/Atom URL；RSS 快照无法证明历史完整性，程序会保守标记覆盖不完整。
+查看发送队列或手动重试：
 
-JSON 采集使用一次 GET；不会猜测供应商的分页参数。需要历史分页时，应由供数接口/适配服务返回完整观察窗口及明确 `coverage`，否则按部分覆盖处理。鉴权头从 `headers_env` 指向的环境变量读取，值为 JSON 对象。
+```powershell
+.venv\Scripts\python -m news_pipeline.cli outbox --config config.local.json
+.venv\Scripts\python -m news_pipeline.cli flush --config config.local.json
+```
 
-## 判断与飞书展示
+## GitHub Actions
 
-- 六类：财政部长 / 财政部其他人员或机构、美联储主席 / 美联储其他人员或机构、总统 / 白宫其他人员或机构。
-- 四种事实状态：非独家、有证据支持独家、暂见单一来源、证据不足。
-- 同一篇消息包含不同事实时逐项判断；所有状态都列出已知传播渠道及原始来源。多家转引一家，不等于多个独立原始来源。
-- 原文保持不变。飞书长消息分段，每段带记录、版本和分段编号。
-- 覆盖缺失、候选数量/输入大小超限时，程序强制撤销独家和单源确定性；有正面证据的非独家判断仍可保留。
-- skill 两份文件自动拼接进入 DeepSeek 系统提示，JSON Schema、证据 ID、短引文和输入链接经程序校验。语义判断仍依赖模型质量，不能保证绝对独家。
+`.github/workflows/news-pipeline.yml` 默认每 6 小时运行一次，也支持手动触发。先在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置：
 
-[详细 DeepSeek skill](skills/deepseek-news-exclusivity/SKILL.md) · [输出契约和边界案例](skills/deepseek-news-exclusivity/references/output-contract.md)
+- `DEEPSEEK_API_KEY`
+- `FEISHU_WEBHOOK_URL`
+- 可选：`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`、`FEISHU_SECRET`
 
-SQLite `articles` 保存原文与最新判断，`history` 保留判定历史，`outbox` 保存发送任务。重启不丢待发送内容。变化后的来源和状态触发新通知；同一采集记录以稳定 ID 追踪，各渠道记录仍分别保存，用 `matches` 相互关联。当前版本没有将跨渠道不同文章合并成单一全局事件，避免多事实文章误合并。
+工作流会把 `data/news.sqlite3` 提交回仓库，使下一轮能够继续做六小时去重、保存历史判断并重试飞书消息。当前仓库原本是公开仓库；SQLite 中含有新闻原文，正式启用前建议将仓库设为 Private，或把 `database` 改接到你自己的私有数据库/存储服务。
 
-飞书只有返回成功才标记已发送。网络超时发生在服务端接收之后时，重试可能重复，消息中的记录和版本可辅助识别；自定义机器人没有这里可用的端到端幂等保证。失败任务保留并按顺序重试，避免长消息后半段先到。
+如要改为每 3 小时运行，需要同时修改工作流里的 cron `0 */3 * * *` 和 `sample_hours`，或者手动运行时使用 `--sample-hours 3`。GitHub Actions 的 schedule 只决定什么时候启动，程序参数决定每轮查询多长时间。
 
-## 已知接入边界
+## 数据库设计
 
-- RSS 地址已填写，配置完成不等于三家已经接通。RSSHub 公共实例本次连接超时，可替换为自建实例。Benzinga RSS 仅验证 XML 可解析，实时性、宏观新闻覆盖和全文完整性仍需观察。
-- 未自动联网核验官员名册或官方新闻稿。可用 `officeholders_file` 传入带任期与来源的名册；只出现名字且缺乏身份依据时，skill 要求保留未知。
-- 当前以飞书自定义机器人群消息实现“上传”。若你需要飞书多维表格，应再补表格 ID、字段和应用授权进行接入。
-- 输入候选来自数据库内观察窗口，没有外部全网检索；若数量超限，明确报告截断，不会冒充完整比较。
-- 不存在已部署的后台服务、定时云任务或已启用 GitHub Actions。
+数据库表先按以下结构确定，后续可以直接修改：
 
-## 接口参考
+| 表 | 作用 |
+|---|---|
+| `sampling_runs` | 每次采样的时间窗口、源覆盖情况、运行结果 |
+| `raw_articles` | 每个渠道的原始文章，保留标题、正文、链接和内容哈希 |
+| `news_items` | 六小时去重后的唯一新闻记录，指向一条主记录 |
+| `news_item_sources` | 去重新闻与所有原始来源的关联；`is_primary=1` 为主记录 |
+| `judgements` | 每次 DeepSeek 判断的完整 JSON、主体、动作、模型和失败信息 |
+| `feishu_outbox` | 待发送/已发送消息、重试次数和错误信息 |
 
-[DeepSeek JSON 模式](https://api-docs.deepseek.com/guides/json_mode/)用于 JSON 输出配置；[飞书自定义机器人说明](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)用于机器人配置。来源网站：[财联社电报](https://www.cls.cn/telegraph)、[金十数据](https://www.jin10.com/)。网站地址不是已经验证的数据 API。
+这样既能让业务上只保留一条去重新闻，又能保留财联社、金十数据和其他渠道的全部来源证据。原始文章和 DeepSeek 判断均可从 SQLite 导出。
+
+## DeepSeek 判断内容
+
+当前只要求 DeepSeek 判断：
+
+- 主体：美国财政部长、财政部其他人员/机构、美联储主席、美联储其他人员/机构、美国总统、白宫其他人员/机构。
+- 动作：声明、决定、政策变化、提议、计划、会议、任命、警告、数据发布等。
+- 每个主体和动作必须带来源记录 ID 与原文短引文；程序会校验引文确实存在于输入正文。
+
+判断规则位于 [skills/news-subject-action/SKILL.md](skills/news-subject-action/SKILL.md)。新闻源字段映射见 [docs/source-contract.md](docs/source-contract.md)，数据库字段说明见 [docs/database.md](docs/database.md)。

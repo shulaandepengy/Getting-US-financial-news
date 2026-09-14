@@ -5,7 +5,11 @@ config.local.json
 .venv/
 __pycache__/
 *.pyc
-data/
+# The SQLite database is intentionally tracked when GitHub Actions is used for
+# persistence. SQLite's transient sidecar files are not tracked.
+data/*.sqlite3-shm
+data/*.sqlite3-wal
+data/*.sqlite3-journal
 *.egg-info/
 dist/
 build/

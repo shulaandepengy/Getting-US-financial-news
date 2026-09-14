@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "getting-us-financial-news"
-version = "0.1.0"
-description = "US Treasury, Federal Reserve and White House news attribution via DeepSeek and Feishu"
+version = "0.2.0"
+description = "Scheduled US financial news sampling, deduplication and DeepSeek subject/action judgement"
 requires-python = ">=3.11"
 dependencies = ["python-dotenv>=1.0,<2", "jsonschema>=4.22,<5"]
 

@@ -6,7 +6,7 @@
 python -m news_pipeline.cli once --config config.direct.example.json
 ```
 
-DeepSeek 密钥仍从同目录的 `.env` 读取。不带 `--send` 不会发送飞书。直连配置用 `CLS_DIRECT_FEED_URL`、`JIN10_DIRECT_FEED_URL` 覆盖默认值，避免已有 RSS 的环境变量覆盖直连地址。Benzinga 仍使用 `US_FEED_URL`。
+DeepSeek 密钥和飞书 webhook 从同目录的 `.env` 读取。现在 `once` 判断完成后默认直接发送飞书；只测试采集和入库时加 `--no-send`。直连配置用 `CLS_DIRECT_FEED_URL`、`JIN10_DIRECT_FEED_URL` 覆盖默认值，避免已有 RSS 的环境变量覆盖直连地址。Benzinga 仍使用 `US_FEED_URL`。
 
 实际单轮结果：财联社 20 条、金十 17 条、Benzinga 10 条。限制为 3 条的模型试跑全部完成校验并保存，三个国内新闻样本均为 out_of_scope，未生成通知。不能据此确认所有相关性判断都正确。
 

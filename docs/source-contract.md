@@ -55,3 +55,4 @@ JSON 路径用点分隔，仅支持对象字段。示例配置：
 RSS 示例为 `{"id":"us_24h","name":"实际供应商","kind":"rss","url_env":"US_FEED_URL"}`。RSS 自动读取 item/entry 的 guid/id、title、link、pubDate/published/updated 及 encoded/content/description/summary，仍保留快照覆盖限制。
 
 上游 ID 或链接稳定时，更正正文会更新同一记录并触发重评。两者都缺失时使用发布时间与正文生成 ID，正文更正会成为新记录；应尽量提供稳定 ID。
+

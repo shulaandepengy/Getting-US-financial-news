@@ -1,2 +1,4 @@
-"""News evidence pipeline. No live connections are started on import."""
+"""Scheduled financial news sampling pipeline."""
+
+__version__ = "0.2.0"
 

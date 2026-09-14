@@ -1,0 +1,65 @@
+name: Scheduled financial news sampling
+
+on:
+  schedule:
+    # Keep this cron aligned with sample_hours in config.github.json.
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      sample_hours:
+        description: "How many hours of news to sample in this run"
+        required: false
+        default: "6"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: financial-news-pipeline
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+      DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+      FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+      FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+      SAMPLE_HOURS: ${{ github.event_name == 'workflow_dispatch' && inputs.sample_hours || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -e .
+
+      - name: Sample, deduplicate, judge and send
+        run: |
+          if [ -n "$SAMPLE_HOURS" ]; then
+            python -m news_pipeline.cli once --config config.github.json --sample-hours "$SAMPLE_HOURS"
+          else
+            python -m news_pipeline.cli once --config config.github.json
+          fi
+
+      - name: Persist SQLite state
+        if: ${{ success() }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/news.sqlite3
+          if git diff --cached --quiet; then
+            echo "SQLite state did not change"
+          else
+            git commit -m "chore: update news database"
+            git push
+          fi
